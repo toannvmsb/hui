@@ -2,27 +2,35 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { Screen, SubHeader } from '../components/Layout';
-import { Card, Icon, Spinner, Badge } from '../components/ui';
+import { Card, Icon, Badge } from '../components/ui';
 import { vnd, vndShort } from '../lib/format';
 import { useAuth } from '../store/auth';
 
 export default function AdminHome() {
   const navigate = useNavigate();
   const logout = useAuth((s) => s.logout);
-  const { data: d, isLoading } = useQuery({ queryKey: ['admin-dash'], queryFn: async () => (await api.get('/admin/dashboard')).data });
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['admin-dash'], queryFn: async () => (await api.get('/admin/dashboard')).data });
   const { data: approvals } = useQuery({ queryKey: ['approvals-count'], queryFn: async () => (await api.get('/admin/approvals/pending-count')).data.count as number, refetchInterval: 15000 });
 
-  if (isLoading || !d) return <Screen nav={false}><SubHeader title="Admin Console" /><Spinner /></Screen>;
+  // Không bao giờ chặn toàn trang chờ số liệu — luôn hiện được các mục điều hướng.
+  const d = data || { gmv: 0, feeRevenue: 0, totalUsers: 0, totalGroups: 0, activeGroups: 0, totalPaidOut: 0, highRiskCount: 0, openDisputes: 0 };
 
   return (
     <Screen nav={false}>
       <SubHeader title="Admin Console" onBack={() => navigate('/')} right={<button onClick={logout} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container"><Icon name="logout" className="text-on-surface" size={20} /></button>} />
       <div className="px-safe-margin pt-3">
+        {isError && (
+          <Card className="p-3 mb-3 bg-error/5 border-error/30 flex items-center gap-2">
+            <Icon name="error" className="text-error" size={20} />
+            <p className="flex-1 text-body-sm text-on-surface">Không tải được số liệu tổng quan.</p>
+            <button onClick={() => refetch()} className="text-error text-label-md font-semibold">Thử lại</button>
+          </Card>
+        )}
         {/* GMV hero */}
         <div className="bg-primary-container text-white rounded-3xl p-5 mb-4 relative overflow-hidden">
           <div className="absolute -right-8 -top-8 w-32 h-32 bg-secondary/20 rounded-full blur-2xl" />
           <p className="text-label-md text-white/60">Tổng GMV (tiền hụi đã luân chuyển)</p>
-          <p className="font-display-lg text-display-lg tabular-nums mb-1">{vnd(d.gmv, false)}<span className="text-title-lg text-white/60">đ</span></p>
+          <p className="font-display-lg text-display-lg tabular-nums mb-1">{isLoading ? '…' : vnd(d.gmv, false)}<span className="text-title-lg text-white/60">đ</span></p>
           <div className="flex gap-2 mt-3">
             <div className="bg-secondary/20 rounded-lg px-3 py-1.5"><span className="text-label-md text-white/70">Doanh thu phí: </span><span className="font-semibold text-secondary-fixed">{vnd(d.feeRevenue)}</span></div>
           </div>

@@ -24,6 +24,7 @@ app.use('/api/groups', groupsRouter);
 app.use('/api/slots', slotsRouter);
 app.use('/api/me', meRouter);
 app.use('/api/organizer', organizerRouter);
+app.use('/api/admin', adminRouter);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Không tìm thấy endpoint' }));
 
 // Phục vụ giao diện React đã build (deploy 1 service: API + web cùng origin).
