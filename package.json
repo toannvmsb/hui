@@ -1,0 +1,25 @@
+{
+  "name": "hui-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Nền tảng quản lý chơi hụi/họ thông minh — minh bạch, an toàn, kết nối tài chính cộng đồng",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "postinstall": "npm --workspace server run db:generate",
+    "setup": "npm --workspace server run db:reset && npm --workspace server run seed",
+    "dev": "concurrently -n server,web -c green,cyan \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm --workspace server run dev",
+    "dev:web": "npm --workspace web run dev",
+    "build": "npm --workspace server run build && npm --workspace web run build",
+    "start": "npm --workspace server run start:prod"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,456 @@
+// Nền tảng quản lý hụi/họ — schema (slot-centric model, double-entry ledger)
+// SQLite for zero-config local dev; schema is Postgres-portable (swap provider + enums).
+// All money amounts are integers in VND (đồng).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  // Local: file:./hui.db (mặc định trong .env). Railway: file:/data/hui.db trên Volume.
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// USERS & IDENTITY
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String   @id @default(cuid())
+  phone         String   @unique
+  fullName      String
+  pinHash       String? // PIN giao dịch
+  // eKYC
+  cccd          String? // số CCCD
+  address       String?
+  dob           String?
+  ekycStatus    String   @default("PENDING") // PENDING | VERIFIED | REJECTED
+  cccdFrontUrl  String?
+  cccdBackUrl   String?
+  selfieUrl     String?
+  avatarColor   String   @default("#006c49")
+  // Reputation
+  creditScore   Int      @default(650) // 300..850
+  trustRating   Float    @default(5.0) // 0..5
+  role          String   @default("PLAYER") // PLAYER | ORGANIZER | ADMIN
+  locked        Boolean  @default(false) // admin khóa tài khoản
+  createdAt     DateTime @default(now())
+
+  wallet            Wallet?
+  ledgerAccounts    LedgerAccount[]
+  organizedGroups   HuiGroup[]            @relation("organizer")
+  memberships       Membership[]
+  ownedSlots        HuiSlot[]             @relation("currentOwner")
+  initialSlots      HuiSlot[]             @relation("initialOwner")
+  bankLinks         BankLink[]
+  guarantees        Guarantee[]
+  notifications     Notification[]
+  riskAlerts        RiskAlert[]
+  disputesRaised    Dispute[]             @relation("disputeRaiser")
+  agreementSigns    AgreementSignature[]
+  transferAsSeller  SlotTransferRequest[] @relation("seller")
+  transferAsBuyer   SlotTransferRequest[] @relation("buyer")
+}
+
+// ---------------------------------------------------------------------------
+// WALLET & DOUBLE-ENTRY LEDGER
+// ---------------------------------------------------------------------------
+
+model Wallet {
+  id            String  @id @default(cuid())
+  userId        String  @unique
+  user          User    @relation(fields: [userId], references: [id])
+  available     Int     @default(0) // số dư khả dụng
+  blocked       Int     @default(0) // số dư bị phong tỏa
+  accountNumber String  @unique // số tài khoản ảo
+
+  transactions WalletTransaction[]
+}
+
+// One ledger account per economic entity (user wallet, hui group, platform, bank clearing...)
+model LedgerAccount {
+  id      String  @id @default(cuid())
+  code    String  @unique
+  type    String // USER_WALLET | HUI_WALLET | PLATFORM_FEE | BANK_CLEARING | GUARANTEE | ESCROW
+  name    String
+  userId  String?
+  user    User?    @relation(fields: [userId], references: [id])
+  groupId String?
+  group   HuiGroup? @relation(fields: [groupId], references: [id])
+  balance Int      @default(0)
+
+  postings LedgerPosting[]
+}
+
+model JournalEntry {
+  id        String   @id @default(cuid())
+  kind      String // CONTRIBUTION | PAYOUT | FEE | TRANSFER | GUARANTEE_PAYOUT | TOPUP | WITHDRAW | SLOT_TRANSFER
+  memo      String
+  groupId   String?
+  cycleId   String?
+  createdAt DateTime @default(now())
+
+  postings LedgerPosting[]
+}
+
+model LedgerPosting {
+  id        String        @id @default(cuid())
+  entryId   String
+  entry     JournalEntry  @relation(fields: [entryId], references: [id])
+  accountId String
+  account   LedgerAccount @relation(fields: [accountId], references: [id])
+  direction String // DEBIT | CREDIT
+  amount    Int
+}
+
+// User-facing wallet history (derived view over ledger)
+model WalletTransaction {
+  id        String   @id @default(cuid())
+  walletId  String
+  wallet    Wallet   @relation(fields: [walletId], references: [id])
+  type      String // TOPUP | WITHDRAW | CONTRIBUTION | PAYOUT | FEE | TRANSFER_IN | TRANSFER_OUT | GUARANTEE
+  direction String // IN | OUT
+  amount    Int
+  balanceAfter Int
+  status    String   @default("SUCCESS") // SUCCESS | PENDING | FAILED
+  note      String
+  groupId   String?
+  createdAt DateTime @default(now())
+}
+
+model BankLink {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  bankName  String
+  bankCode  String
+  accountNo String
+  accountName String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// HUI GROUP (dây hụi), SLOTS (suất), CYCLES (kỳ)
+// ---------------------------------------------------------------------------
+
+model HuiGroup {
+  id            String   @id @default(cuid())
+  name          String
+  code          String   @unique
+  organizerId   String
+  organizer     User     @relation("organizer", fields: [organizerId], references: [id])
+  huiType       String // DEAD (hụi chết) | LIVE (hụi sống)
+  mode          String // SELF (tự quản) | SECURED (có bảo đảm)
+  totalSlots    Int
+  amountPerSlot Int // giá trị mỗi suất mỗi kỳ
+  cycleUnit     String // DAY | WEEK | MONTH
+  totalCycles   Int
+  closingDay    Int      @default(10) // ngày chốt mỗi kỳ
+  bidRule       String   @default("SEALED") // SEALED (đấu kín) | OPEN (đấu công khai)
+  allowExternalTransfer Boolean @default(false)
+  allowMultiSlot Boolean @default(true)
+  allowTransferAfterDrawn Boolean @default(false)
+  // Fee sharing on harvest: tỷ lệ % chia cho chủ hụi & thành viên còn lại
+  organizerSharePct Float @default(1.0)
+  membersSharePct   Float @default(2.0)
+  creationFee   Int      @default(29000)
+  status        String   @default("DRAFT") // DRAFT | PENDING_MEMBERS | PENDING_SIGN | ACTIVE | COMPLETED | BROKEN
+  startDate     String?
+  agreementText String?
+  agreementHash String?
+  createdAt     DateTime @default(now())
+
+  ledgerAccount LedgerAccount[]
+  slots         HuiSlot[]
+  cycles        HuiCycle[]
+  memberships   Membership[]
+  agreementSigns AgreementSignature[]
+  riskAlerts    RiskAlert[]
+  disputes      Dispute[]
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  groupId   String
+  group     HuiGroup @relation(fields: [groupId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  status    String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  role      String   @default("MEMBER") // MEMBER | ORGANIZER
+  joinedAt  DateTime @default(now())
+
+  @@unique([groupId, userId])
+}
+
+model HuiSlot {
+  id              String   @id @default(cuid())
+  groupId         String
+  group           HuiGroup @relation(fields: [groupId], references: [id])
+  slotCode        String // mã suất, vd S01
+  initialOwnerId  String?
+  initialOwner    User?    @relation("initialOwner", fields: [initialOwnerId], references: [id])
+  currentOwnerId  String?
+  currentOwner    User?    @relation("currentOwner", fields: [currentOwnerId], references: [id])
+  status          String   @default("OPEN") // OPEN (chờ bán) | ACTIVE | LOCKED | COMPLETED
+  hasDrawn        Boolean  @default(false)
+  drawnCycleNo    Int?
+  guaranteeStatus String   @default("NONE") // NONE | REQUESTED | APPROVED | LOCKED | RELEASED
+  lockedReason    String?
+  acquiredAt      DateTime @default(now())
+  transferredCount Int     @default(0)
+  createdAt       DateTime @default(now())
+
+  ownershipHistory SlotOwnershipHistory[]
+  transferRequests SlotTransferRequest[]
+  contributions    HuiContribution[]
+  bids             HuiBid[]
+  payouts          Payout[]
+  guarantees       Guarantee[]
+  wonCycles        HuiCycle[]             @relation("winnerSlot")
+
+  @@unique([groupId, slotCode])
+}
+
+model SlotOwnershipHistory {
+  id           String   @id @default(cuid())
+  slotId       String
+  slot         HuiSlot  @relation(fields: [slotId], references: [id])
+  fromUserId   String?
+  toUserId     String
+  transferType String // INITIAL | INTERNAL | EXTERNAL
+  transferPrice Int    @default(0)
+  effectiveAt  DateTime @default(now())
+  approvedBy   String?
+  note         String?
+}
+
+model HuiCycle {
+  id           String   @id @default(cuid())
+  groupId      String
+  group        HuiGroup @relation(fields: [groupId], references: [id])
+  cycleNo      Int
+  status       String   @default("PENDING") // PENDING | COLLECTING | BIDDING | PAID | CLOSED
+  openAt       String?
+  dueDate      String?
+  potAmount    Int      @default(0)
+  winnerSlotId String?
+  winnerSlot   HuiSlot? @relation("winnerSlot", fields: [winnerSlotId], references: [id])
+  bidAmount    Int      @default(0) // tiền giật (thắng)
+  payoutAmount Int      @default(0) // tiền thực nhận
+  paidAt       DateTime?
+
+  contributions HuiContribution[]
+  bids          HuiBid[]
+  payouts       Payout[]
+
+  @@unique([groupId, cycleNo])
+}
+
+model HuiContribution {
+  id                  String   @id @default(cuid())
+  cycleId             String
+  cycle               HuiCycle @relation(fields: [cycleId], references: [id])
+  slotId              String
+  slot                HuiSlot  @relation(fields: [slotId], references: [id])
+  ownerUserIdAtDueTime String
+  amount              Int
+  status              String   @default("PENDING") // PENDING | PAID | OVERDUE | GUARANTEED_PAID
+  paidByUserId        String?
+  receiptCode         String?
+  paidAt              DateTime?
+  createdAt           DateTime @default(now())
+
+  @@unique([cycleId, slotId])
+}
+
+model HuiBid {
+  id               String   @id @default(cuid())
+  cycleId          String
+  cycle            HuiCycle @relation(fields: [cycleId], references: [id])
+  slotId           String
+  slot             HuiSlot  @relation(fields: [slotId], references: [id])
+  slotOwnerUserId  String
+  bidAmount        Int
+  isWinner         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+}
+
+model Payout {
+  id          String   @id @default(cuid())
+  cycleId     String
+  cycle       HuiCycle @relation(fields: [cycleId], references: [id])
+  slotId      String
+  slot        HuiSlot  @relation(fields: [slotId], references: [id])
+  userId      String
+  grossAmount Int
+  feeAmount   Int
+  netAmount   Int
+  receiptCode String
+  createdAt   DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// SLOT TRANSFER (chuyển nhượng suất)
+// ---------------------------------------------------------------------------
+
+model SlotTransferRequest {
+  id                    String   @id @default(cuid())
+  slotId                String
+  slot                  HuiSlot  @relation(fields: [slotId], references: [id])
+  sellerUserId          String
+  seller                User     @relation("seller", fields: [sellerUserId], references: [id])
+  buyerUserId           String?
+  buyer                 User?    @relation("buyer", fields: [buyerUserId], references: [id])
+  buyerType             String // INTERNAL | EXTERNAL | OPEN_LISTING
+  askingPrice           Int
+  feeAmount             Int      @default(9000)
+  approvalStatus        String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  paymentStatus         String   @default("UNPAID") // UNPAID | PAID
+  guaranteeRecheckStatus String  @default("NA") // NA | REQUIRED | PASSED | FAILED
+  note                  String?
+  createdAt             DateTime @default(now())
+  completedAt           DateTime?
+
+  agreement SlotTransferAgreement?
+}
+
+model SlotTransferAgreement {
+  id               String   @id @default(cuid())
+  transferRequestId String  @unique
+  transferRequest  SlotTransferRequest @relation(fields: [transferRequestId], references: [id])
+  agreementText    String
+  sellerSignedAt   DateTime?
+  buyerSignedAt    DateTime?
+  organizerSignedAt DateTime?
+  providerSignedAt DateTime?
+  signedHash       String?
+}
+
+// ---------------------------------------------------------------------------
+// GUARANTEE (bảo đảm — chế độ 2)
+// ---------------------------------------------------------------------------
+
+model GuaranteeProvider {
+  id        String   @id @default(cuid())
+  name      String
+  type      String // FINANCE | PAWN
+  logoColor String   @default("#131b2e")
+  isActive  Boolean  @default(true)
+
+  guarantees Guarantee[]
+}
+
+model Guarantee {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  providerId  String
+  provider    GuaranteeProvider @relation(fields: [providerId], references: [id])
+  slotId      String?
+  slot        HuiSlot? @relation(fields: [slotId], references: [id])
+  limitAmount Int
+  lockedAmount Int     @default(0)
+  status      String   @default("REQUESTED") // REQUESTED | APPROVED | LOCKED | RELEASED | REJECTED
+  createdAt   DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// AGREEMENTS, RISK, DISPUTES, NOTIFICATIONS, AUDIT
+// ---------------------------------------------------------------------------
+
+model AgreementSignature {
+  id        String   @id @default(cuid())
+  groupId   String
+  group     HuiGroup @relation(fields: [groupId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  signedAt  DateTime @default(now())
+  signHash  String
+
+  @@unique([groupId, userId])
+}
+
+model RiskAlert {
+  id        String   @id @default(cuid())
+  level     String // LOW | MEDIUM | HIGH
+  type      String // LATE_PAYMENT | BREAK_RISK | FRAUD | TRANSFER_ANOMALY
+  title     String
+  message   String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  groupId   String?
+  group     HuiGroup? @relation(fields: [groupId], references: [id])
+  resolved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Dispute {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  raiserId  String
+  raiser    User     @relation("disputeRaiser", fields: [raiserId], references: [id])
+  groupId   String?
+  group     HuiGroup? @relation(fields: [groupId], references: [id])
+  category  String // OWNERSHIP | PRICE | OBLIGATION | BID_RESULT | OTHER
+  subject   String
+  detail    String
+  status    String   @default("OPEN") // OPEN | REVIEWING | RESOLVED | REJECTED
+  resolution String?
+  evidenceUrls String? // JSON array
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String // PAYMENT_DUE | BID_OPEN | PAYOUT | TRANSFER | RISK | SYSTEM
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  action    String
+  target    String
+  detail    String?
+  createdAt DateTime @default(now())
+}
+
+// Cơ chế 4 mắt (maker-checker) cho thao tác admin rủi ro cao
+model AdminApproval {
+  id          String   @id @default(cuid())
+  action      String // LOCK_USER | UNLOCK_USER | UPDATE_SCORE_CONFIG
+  payload     String // JSON
+  targetLabel String
+  summary     String
+  makerId     String
+  makerName   String
+  status      String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  checkerId   String?
+  checkerName String?
+  reason      String?
+  createdAt   DateTime @default(now())
+  decidedAt   DateTime?
+}
+
+// Bộ tham số tính điểm uy tín (credit score) — chỉnh bởi admin
+model ScoreConfig {
+  id              String   @id @default("default")
+  baseScore       Int      @default(650)
+  onTimePoints    Int      @default(2)   // cộng mỗi kỳ đóng đúng hạn
+  latePenalty     Int      @default(15)  // trừ mỗi kỳ quá hạn
+  groupJoinPoints Int      @default(5)   // cộng mỗi dây tham gia
+  harvestPoints   Int      @default(3)   // cộng mỗi lần hốt hoàn tất
+  transferPenalty Int      @default(4)   // trừ mỗi lần sang nhượng suất
+  minScore        Int      @default(300)
+  maxScore        Int      @default(850)
+  updatedAt       DateTime @default(now()) @updatedAt
+  updatedBy       String?
+}
