@@ -1,6 +1,8 @@
 import { useState, lazy, Suspense } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { api, apiError } from '../lib/api';
+import { extractCccdClient } from '../lib/ocr';
 import { Button, Icon, Input, Field, Card, Spinner } from '../components/ui';
 import { SubHeader } from '../components/Layout';
 import { CameraCapture } from '../components/CameraCapture';
@@ -26,6 +28,8 @@ export default function Ekyc() {
   const [liveness, setLiveness] = useState<{ score: number | null; method: string; challenges: string[] } | null>(null);
   const [ocr, setOcr] = useState<any>(null);
   const [ocring, setOcring] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const { data: provider } = useQuery({ queryKey: ['ekyc-provider'], queryFn: async () => (await api.get('/auth/ekyc/provider')).data as { ocr: string } });
   const [form, setForm] = useState<any>({ cccd: '', fullName: '', dob: '', gender: '', hometown: '', address: '', issueDate: '', issuePlace: '' });
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -34,15 +38,25 @@ export default function Ekyc() {
   async function captureFront(data: string) {
     setFront(data || null);
     if (data && !ocr) {
-      setOcring(true);
+      setOcring(true); setOcrProgress(0);
       try {
-        const { data: ex } = await api.post('/auth/ekyc/ocr', { frontImage: data });
+        let ex: any;
+        if (provider?.ocr === 'fpt') {
+          ex = (await api.post('/auth/ekyc/ocr', { frontImage: data })).data;
+        } else {
+          ex = await extractCccdClient(data, (p) => setOcrProgress(p));
+        }
         setOcr(ex);
-        setForm({ cccd: ex.cccd, fullName: ex.fullName, dob: ex.dob, gender: ex.gender, hometown: ex.hometown, address: ex.address, issueDate: ex.issueDate, issuePlace: ex.issuePlace });
+        setForm({
+          cccd: ex.cccd || '', fullName: ex.fullName || '', dob: ex.dob || '', gender: ex.gender || '',
+          hometown: ex.hometown || '', address: ex.address || '', issueDate: ex.issueDate || '', issuePlace: ex.issuePlace || '',
+        });
       } catch (e) { toast(apiError(e), 'red'); }
       finally { setOcring(false); }
     }
   }
+
+  const ocrMissing = ocr ? ['cccd', 'fullName', 'dob'].filter((k) => !ocr[k]).length : 0;
 
   async function submit() {
     setSubmitting(true);
@@ -80,8 +94,15 @@ export default function Ekyc() {
             <h2 className="font-headline-sm text-headline-sm text-on-surface mb-1">Chụp CCCD mặt trước</h2>
             <p className="text-body-md text-on-surface-variant mb-5">Đặt CCCD trong khung, rõ nét, đủ sáng, không lóa.</p>
             <CameraCapture shape="card" facing="environment" demoKind="front" hint="Khung CCCD mặt trước" value={front} onCapture={captureFront} />
-            {ocring && <Card className="p-3 mt-3 flex items-center gap-2 bg-tertiary/5 border-tertiary/20"><Icon name="document_scanner" className="text-tertiary animate-pulse" /><p className="text-body-sm text-on-surface-variant">Đang đọc thông tin từ CCCD…</p></Card>}
-            {ocr && !ocring && <Card className="p-3 mt-3 bg-secondary/5 border-secondary/20 flex items-center gap-2"><Icon name="check_circle" className="text-secondary" fill /><p className="text-body-sm text-on-surface">Đã trích xuất thông tin (độ chính xác {ocr.ocrConfidence}%)</p></Card>}
+            {ocring && (
+              <Card className="p-3 mt-3 bg-tertiary/5 border-tertiary/20">
+                <div className="flex items-center gap-2 mb-1"><Icon name="document_scanner" className="text-tertiary animate-pulse" /><p className="text-body-sm text-on-surface-variant flex-1">Đang đọc thông tin từ CCCD…{provider?.ocr !== 'fpt' && ocrProgress > 0 ? ` ${ocrProgress}%` : ''}</p></div>
+                {provider?.ocr !== 'fpt' && <div className="w-full bg-surface-variant h-1.5 rounded-full overflow-hidden"><div className="h-full bg-tertiary rounded-full transition-all" style={{ width: `${ocrProgress}%` }} /></div>}
+              </Card>
+            )}
+            {ocr && !ocring && (ocrMissing >= 2
+              ? <Card className="p-3 mt-3 bg-warning/5 border-warning/30 flex items-center gap-2"><Icon name="info" className="text-warning" /><p className="text-body-sm text-on-surface">Đọc chưa rõ — vui lòng chụp lại rõ nét hơn hoặc nhập tay ở bước Xác nhận.</p></Card>
+              : <Card className="p-3 mt-3 bg-secondary/5 border-secondary/20 flex items-center gap-2"><Icon name="check_circle" className="text-secondary" fill /><p className="text-body-sm text-on-surface">Đã đọc thông tin từ CCCD (độ tin cậy {ocr.ocrConfidence}%). Kiểm tra lại ở bước Xác nhận.</p></Card>)}
           </div>
         )}
 

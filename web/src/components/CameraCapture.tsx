@@ -18,31 +18,60 @@ function downscale(dataUrl: string, max = 800, q = 0.6): Promise<string> {
   });
 }
 
-/** Ảnh demo (vẽ canvas) để thử luồng khi không có camera. */
+/** Ảnh demo (vẽ canvas) để thử luồng khi không có camera — chữ rõ để OCR đọc được. */
 function demoImage(kind: 'front' | 'back' | 'selfie'): string {
+  const W = 660, H = 416;
   const c = document.createElement('canvas');
-  c.width = 520; c.height = 330;
+  c.width = W; c.height = H;
   const x = c.getContext('2d')!;
   if (kind === 'selfie') {
-    const g = x.createLinearGradient(0, 0, 0, 330); g.addColorStop(0, '#cbdbf5'); g.addColorStop(1, '#eff4ff');
-    x.fillStyle = g; x.fillRect(0, 0, 520, 330);
-    x.fillStyle = '#94a3b8'; x.beginPath(); x.arc(260, 140, 70, 0, Math.PI * 2); x.fill();
-    x.beginPath(); x.arc(260, 320, 110, Math.PI, 0); x.fill();
-    x.fillStyle = '#475569'; x.font = '20px sans-serif'; x.textAlign = 'center'; x.fillText('Ảnh selfie (demo)', 260, 30);
-  } else {
-    const g = x.createLinearGradient(0, 0, 520, 330);
-    g.addColorStop(0, kind === 'front' ? '#006c49' : '#131b2e'); g.addColorStop(1, '#3980f4');
-    x.fillStyle = g; x.fillRect(0, 0, 520, 330);
-    x.fillStyle = 'rgba(255,255,255,0.95)'; x.font = 'bold 17px sans-serif'; x.textAlign = 'left';
-    x.fillText('CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM', 24, 34);
-    x.font = 'bold 22px sans-serif'; x.fillStyle = '#ffe08a';
-    x.fillText(kind === 'front' ? 'CĂN CƯỚC CÔNG DÂN' : 'MẶT SAU CCCD', 24, 70);
-    x.fillStyle = 'rgba(255,255,255,0.25)'; x.fillRect(24, 96, 120, 150);
-    x.fillStyle = 'rgba(255,255,255,0.85)'; x.font = '14px sans-serif';
-    for (let i = 0; i < 5; i++) x.fillRect(170, 110 + i * 28, 300 - i * 30, 10);
-    x.fillText('Ảnh CCCD demo', 170, 300);
+    const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#cbdbf5'); g.addColorStop(1, '#eff4ff');
+    x.fillStyle = g; x.fillRect(0, 0, W, H);
+    x.fillStyle = '#94a3b8'; x.beginPath(); x.arc(W / 2, 175, 85, 0, Math.PI * 2); x.fill();
+    x.beginPath(); x.arc(W / 2, 400, 130, Math.PI, 0); x.fill();
+    x.fillStyle = '#475569'; x.font = '22px sans-serif'; x.textAlign = 'center'; x.fillText('Ảnh selfie (demo)', W / 2, 36);
+    return c.toDataURL('image/jpeg', 0.7);
   }
-  return c.toDataURL('image/jpeg', 0.6);
+  // Thẻ CCCD nền sáng, chữ đen rõ → Tesseract đọc tốt
+  x.fillStyle = '#eef4ee'; x.fillRect(0, 0, W, H);
+  x.strokeStyle = '#9fbfa8'; x.lineWidth = 3; x.strokeRect(8, 8, W - 16, H - 16);
+  x.textAlign = 'left';
+  x.fillStyle = '#9a1b1b'; x.font = 'bold 15px Arial'; x.fillText('CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM', 150, 38);
+  x.font = 'italic 13px Arial'; x.fillText('Độc lập - Tự do - Hạnh phúc', 250, 58);
+  x.fillStyle = '#0a4ea3'; x.font = 'bold 24px Arial'; x.textAlign = 'center';
+  x.fillText(kind === 'front' ? 'CĂN CƯỚC CÔNG DÂN' : 'CĂN CƯỚC CÔNG DÂN (mặt sau)', W / 2, 92);
+  x.textAlign = 'left';
+  x.fillStyle = '#111';
+  if (kind === 'front') {
+    // ảnh chân dung
+    x.fillStyle = '#cdd6cf'; x.fillRect(28, 110, 150, 190); x.fillStyle = '#8a978d'; x.beginPath(); x.arc(103, 175, 38, 0, Math.PI * 2); x.fill(); x.beginPath(); x.arc(103, 285, 60, Math.PI, 0); x.fill();
+    const lines: [string, string][] = [
+      ['Số / No.:', '034090012345'],
+      ['Họ và tên / Full name:', ''],
+      ['', 'NGUYỄN VĂN DEMO'],
+      ['Ngày sinh / Date of birth:', '15/08/1990'],
+      ['Giới tính / Sex: Nam', 'Quốc tịch: Việt Nam'],
+      ['Quê quán / Place of origin:', ''],
+      ['', 'Hải Phòng'],
+      ['Nơi thường trú / Residence:', ''],
+      ['', '123 Lê Lợi, Quận 1, TP. HCM'],
+    ];
+    let yy = 128; x.font = '17px Arial';
+    for (const [lab, val] of lines) {
+      x.fillStyle = '#1f3a5f'; x.font = '14px Arial'; if (lab) x.fillText(lab, 200, yy);
+      x.fillStyle = '#111'; x.font = 'bold 18px Arial'; if (val) x.fillText(val, lab ? 360 : 200, yy);
+      yy += lab && val ? 30 : 26;
+    }
+  } else {
+    x.font = '15px Arial'; x.fillStyle = '#111';
+    x.fillText('Đặc điểm nhận dạng: sẹo chấm cách 1cm trên trán', 40, 140);
+    x.fillText('Ngày cấp / Date of issue: 20/03/2022', 40, 175);
+    x.fillText('Nơi cấp: Cục Cảnh sát QLHC về TTXH', 40, 210);
+    x.font = '15px monospace'; x.fillText('IDVNM0340900123454<<<<<<<<<<<<<<<', 40, 300);
+    x.fillText('9008152M3203205VNM<<<<<<<<<<<8', 40, 322);
+    x.fillText('NGUYEN<<VAN<DEMO<<<<<<<<<<<<<<<', 40, 344);
+  }
+  return c.toDataURL('image/jpeg', 0.85);
 }
 
 interface Props {

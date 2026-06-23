@@ -4,7 +4,7 @@ import { handler, AppError } from '../lib/http.js';
 import { signToken } from '../lib/auth.js';
 import { authRequired } from '../middleware/auth.js';
 import { createUserWithWallet } from '../services/account.js';
-import { extractIdCard, matchFaceLiveness } from '../services/ekyc.js';
+import { extractIdCard, matchFaceLiveness, ekycProviderInfo } from '../services/ekyc.js';
 
 export const authRouter = Router();
 
@@ -34,7 +34,13 @@ authRouter.post('/verify-otp', handler(async (req, res) => {
 }));
 
 // Nộp eKYC (mock auto-verify)
-// Bước OCR: trích xuất thông tin từ ảnh CCCD mặt trước (mô phỏng)
+// Cho client biết dùng OCR nào: 'fpt' (gọi server) hay 'client' (Tesseract trong trình duyệt)
+authRouter.get('/ekyc/provider', authRequired, handler(async (_req, res) => {
+  const info = ekycProviderInfo();
+  res.json({ ocr: info.provider === 'fpt' ? 'fpt' : 'client', provider: info.provider, faceThreshold: info.faceThreshold, liveThreshold: info.liveThreshold });
+}));
+
+// Bước OCR phía server (chỉ dùng khi bật FPT.AI)
 authRouter.post('/ekyc/ocr', authRequired, handler(async (req: any, res) => {
   if (!req.body.frontImage) throw new AppError('Thiếu ảnh CCCD mặt trước');
   const user = await prisma.user.findUnique({ where: { id: req.userId } });
