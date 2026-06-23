@@ -224,6 +224,52 @@ adminRouter.post('/users/:id/lock', handler(async (req: any, res) => {
   res.json({ ok: true, pendingApproval: true });
 }));
 
+// ---- Duyệt eKYC ----
+adminRouter.get('/ekyc', handler(async (req: any, res) => {
+  const status = (req.query.status as string) || '';
+  const where = status ? { status } : {};
+  const subs = await prisma.ekycSubmission.findMany({ where, include: { user: true }, orderBy: [{ status: 'asc' }, { createdAt: 'desc' }], take: 60 });
+  res.json(subs.map((s) => ({
+    id: s.id, userId: s.userId, userName: s.user.fullName, userPhone: s.user.phone, avatarColor: s.user.avatarColor,
+    status: s.status, cccd: s.cccd, fullName: s.fullName, faceMatchScore: s.faceMatchScore, livenessScore: s.livenessScore,
+    ocrConfidence: s.ocrConfidence, createdAt: s.createdAt, rejectReason: s.rejectReason,
+  })));
+}));
+adminRouter.get('/ekyc/pending-count', handler(async (_req, res) => {
+  const count = await prisma.ekycSubmission.count({ where: { status: 'PENDING_REVIEW' } });
+  res.json({ count });
+}));
+adminRouter.get('/ekyc/:id', handler(async (req: any, res) => {
+  const s = await prisma.ekycSubmission.findUnique({ where: { id: req.params.id }, include: { user: true } });
+  if (!s) throw new AppError('Hồ sơ không tồn tại', 404);
+  res.json({
+    id: s.id, userId: s.userId, userName: s.user.fullName, userPhone: s.user.phone,
+    status: s.status, cccd: s.cccd, fullName: s.fullName, dob: s.dob, gender: s.gender, hometown: s.hometown,
+    address: s.address, issueDate: s.issueDate, issuePlace: s.issuePlace,
+    frontImage: s.frontImage, backImage: s.backImage, selfieImage: s.selfieImage,
+    faceMatchScore: s.faceMatchScore, livenessScore: s.livenessScore, ocrConfidence: s.ocrConfidence,
+    livenessMethod: s.livenessMethod, livenessChallenges: s.livenessChallenges ? JSON.parse(s.livenessChallenges) : [],
+    rejectReason: s.rejectReason, createdAt: s.createdAt,
+  });
+}));
+adminRouter.post('/ekyc/:id/approve', handler(async (req: any, res) => {
+  const s = await prisma.ekycSubmission.findUnique({ where: { id: req.params.id } });
+  if (!s) throw new AppError('Hồ sơ không tồn tại', 404);
+  await prisma.ekycSubmission.update({ where: { id: s.id }, data: { status: 'VERIFIED', reviewedById: req.userId, reviewedAt: new Date() } });
+  await prisma.user.update({ where: { id: s.userId }, data: { ekycStatus: 'VERIFIED', cccd: s.cccd, address: s.address, dob: s.dob } });
+  await prisma.notification.create({ data: { userId: s.userId, type: 'SYSTEM', title: 'Định danh eKYC đã được duyệt ✓', body: 'Hồ sơ của bạn đã được xác minh. Bạn có thể tạo & tham gia dây hụi.', link: '/profile' } });
+  res.json({ ok: true });
+}));
+adminRouter.post('/ekyc/:id/reject', handler(async (req: any, res) => {
+  const s = await prisma.ekycSubmission.findUnique({ where: { id: req.params.id } });
+  if (!s) throw new AppError('Hồ sơ không tồn tại', 404);
+  const reason = req.body.reason || 'Ảnh không rõ hoặc thông tin không khớp';
+  await prisma.ekycSubmission.update({ where: { id: s.id }, data: { status: 'REJECTED', rejectReason: reason, reviewedById: req.userId, reviewedAt: new Date() } });
+  await prisma.user.update({ where: { id: s.userId }, data: { ekycStatus: 'REJECTED' } });
+  await prisma.notification.create({ data: { userId: s.userId, type: 'SYSTEM', title: 'Định danh eKYC bị từ chối', body: `Lý do: ${reason}. Vui lòng nộp lại hồ sơ.`, link: '/ekyc' } });
+  res.json({ ok: true });
+}));
+
 // ---- Cơ chế 4 mắt: hàng đợi phê duyệt ----
 adminRouter.get('/approvals', handler(async (req: any, res) => {
   const items = await prisma.adminApproval.findMany({ orderBy: [{ status: 'asc' }, { createdAt: 'desc' }], take: 50 });

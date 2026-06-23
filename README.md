@@ -60,6 +60,24 @@ server/   API Express + Prisma + services (ledger, hui, auction, transfer, walle
 web/      React app (pages/, components/, lib/, store/)
 ```
 
+## Bật eKYC thật (FPT.AI)
+
+Mặc định eKYC chạy **mô phỏng** (OCR + đối chiếu khuôn mặt giả lập) để demo không cần chi phí.
+Để dùng **eKYC thật**, hệ thống đã tích hợp sẵn **FPT.AI** — chỉ cần lấy API key:
+
+1. Tạo tài khoản tại **https://console.fpt.ai** → tạo **API key** (eKYC / Vision).
+2. Đặt biến môi trường (local: `server/.env`; Railway: tab Variables):
+   ```
+   EKYC_PROVIDER=fpt
+   FPT_API_KEY=<api-key-của-bạn>
+   ```
+3. Khởi động lại app. Từ giờ:
+   - Bước OCR gọi `api.fpt.ai/vision/idr/vnm` để đọc CCCD thật.
+   - Bước đối chiếu gọi `api.fpt.ai/dmp/checkface` so khớp selfie ↔ ảnh CCCD thật.
+   - Tự duyệt nếu điểm khớp ≥ `EKYC_FACE_THRESHOLD` (mặc định 80), ngược lại chuyển admin duyệt.
+
+> An toàn: nếu thiếu key hoặc FPT.AI lỗi/chậm, hệ thống **tự fallback về mô phỏng** (có timeout 12s) — app không bao giờ treo. Code tích hợp ở `server/src/services/ekyc.ts` (đổi sang VNPT/VNG chỉ cần thêm 1 adapter ở đây).
+
 ## Triển khai lên Railway (1 service: API + giao diện + DB)
 
 App được cấu hình chạy **1 service duy nhất**: Express phục vụ cả API lẫn giao diện React (cùng origin),

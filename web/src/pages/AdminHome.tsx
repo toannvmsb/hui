@@ -11,6 +11,7 @@ export default function AdminHome() {
   const logout = useAuth((s) => s.logout);
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['admin-dash'], queryFn: async () => (await api.get('/admin/dashboard')).data });
   const { data: approvals } = useQuery({ queryKey: ['approvals-count'], queryFn: async () => (await api.get('/admin/approvals/pending-count')).data.count as number, refetchInterval: 15000 });
+  const { data: ekycCount } = useQuery({ queryKey: ['ekyc-count'], queryFn: async () => (await api.get('/admin/ekyc/pending-count')).data.count as number, refetchInterval: 15000 });
 
   // Không bao giờ chặn toàn trang chờ số liệu — luôn hiện được các mục điều hướng.
   const d = data || { gmv: 0, feeRevenue: 0, totalUsers: 0, totalGroups: 0, activeGroups: 0, totalPaidOut: 0, highRiskCount: 0, openDisputes: 0 };
@@ -48,6 +49,7 @@ export default function AdminHome() {
           <AdminLink icon="leaderboard" label="Phân tích & xếp hạng" desc="Bảng xếp hạng người chơi & dây hụi" to="/admin/analytics" tone="green" />
           <AdminLink icon="group" label="Quản lý người dùng" desc="Hồ sơ 360°, công nợ, khóa/mở" to="/admin/users" tone="green" />
           <AdminLink icon="diversity_3" label="Quản lý dây hụi" desc="Giá trị, người chơi, mức rủi ro" to="/admin/groups" tone="green" />
+          <AdminLink icon="badge" label="Duyệt định danh eKYC" desc="Kiểm tra ảnh CCCD, selfie, điểm khớp" to="/admin/ekyc" tone="amber" badge={ekycCount || 0} />
           <AdminLink icon="verified_user" label="Phê duyệt 4 mắt" desc="Thao tác rủi ro cao chờ duyệt" to="/admin/approvals" tone="amber" badge={approvals || 0} />
           <AdminLink icon="tune" label="Tham số điểm uy tín" desc="Điều chỉnh công thức tính điểm" to="/admin/score-config" tone="green" />
           <AdminLink icon="description" label="Trung tâm báo cáo" desc="Xuất Excel / PDF báo cáo vận hành, pháp lý" to="/admin/reports" tone="green" />

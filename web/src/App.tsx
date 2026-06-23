@@ -53,6 +53,8 @@ import AdminApprovals from './pages/AdminApprovals';
 import AdminScoreConfig from './pages/AdminScoreConfig';
 import AdminReports from './pages/AdminReports';
 import AdminReportView from './pages/AdminReportView';
+import AdminEkyc from './pages/AdminEkyc';
+import AdminEkycDetail from './pages/AdminEkycDetail';
 
 function Protected({ children }: { children: JSX.Element }) {
   const { me, loading } = useAuth();
@@ -120,6 +122,8 @@ export default function App() {
         <Route path="/admin/score-config" element={<Protected><AdminScoreConfig /></Protected>} />
         <Route path="/admin/reports" element={<Protected><AdminReports /></Protected>} />
         <Route path="/admin/reports/:type" element={<Protected><AdminReportView /></Protected>} />
+        <Route path="/admin/ekyc" element={<Protected><AdminEkyc /></Protected>} />
+        <Route path="/admin/ekyc/:id" element={<Protected><AdminEkycDetail /></Protected>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

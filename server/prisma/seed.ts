@@ -6,13 +6,17 @@ import { placeBid, closeAuction } from '../src/services/auction.js';
 import { createTransferRequest, decideTransfer } from '../src/services/transfer.js';
 import { genCode } from '../src/lib/http.js';
 import { notify, raiseRisk } from '../src/services/notify.js';
+import { mockOcr } from '../src/services/ekyc.js';
+
+const svgImg = (label: string, color: string) =>
+  'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect width="100%" height="100%" fill="${color}"/><text x="50%" y="50%" fill="white" font-size="20" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">${label}</text></svg>`);
 
 async function wipe() {
   // Xóa theo thứ tự phụ thuộc
   const tables = [
     'ledgerPosting', 'journalEntry', 'walletTransaction', 'payout', 'huiBid', 'huiContribution',
     'slotTransferAgreement', 'slotTransferRequest', 'slotOwnershipHistory', 'agreementSignature',
-    'huiCycle', 'huiSlot', 'membership', 'guarantee', 'riskAlert', 'dispute', 'notification',
+    'huiCycle', 'huiSlot', 'membership', 'guarantee', 'riskAlert', 'dispute', 'notification', 'ekycSubmission',
     'adminApproval', 'auditLog', 'bankLink', 'huiGroup', 'ledgerAccount', 'wallet', 'guaranteeProvider', 'user',
   ];
   for (const t of tables) {
@@ -219,6 +223,22 @@ export async function seedDatabase() {
     const u = await prisma.$transaction((tx) => createUserWithWallet(tx, { phone, fullName: name, creditScore: score }));
     // ~70% đã eKYC, phần còn lại đang khám phá
     if (i % 10 < 7) await prisma.user.update({ where: { id: u.id }, data: { ekycStatus: 'VERIFIED', cccd: '0' + genCode('', 11), address: 'Việt Nam' } });
+  }
+
+  console.log('🪪 Tạo hồ sơ eKYC chờ duyệt...');
+  const reviewUsers = await prisma.user.findMany({ where: { ekycStatus: 'PENDING', role: 'PLAYER' }, take: 2 });
+  for (const u of reviewUsers) {
+    const o = mockOcr(u.fullName);
+    await prisma.ekycSubmission.create({
+      data: {
+        userId: u.id, status: 'PENDING_REVIEW', cccd: o.cccd, fullName: u.fullName, dob: o.dob, gender: o.gender,
+        hometown: o.hometown, address: o.address, issueDate: o.issueDate, issuePlace: o.issuePlace,
+        frontImage: svgImg('CCCD mặt trước', '#006c49'), backImage: svgImg('CCCD mặt sau', '#131b2e'), selfieImage: svgImg('Selfie', '#3980f4'),
+        faceMatchScore: 70 + Math.round(Math.random() * 80) / 10, livenessScore: 80 + Math.round(Math.random() * 100) / 10, ocrConfidence: o.ocrConfidence,
+      },
+    });
+    await prisma.user.update({ where: { id: u.id }, data: { ekycStatus: 'REVIEWING' } });
+    await notify(prisma, admin.id, 'SYSTEM', 'Hồ sơ eKYC cần duyệt', `${u.fullName} đã nộp hồ sơ định danh — cần kiểm tra.`, '/admin/ekyc');
   }
 
   console.log('🔔 Tạo thông báo chào mừng...');

@@ -25,7 +25,7 @@ model User {
   cccd          String? // số CCCD
   address       String?
   dob           String?
-  ekycStatus    String   @default("PENDING") // PENDING | VERIFIED | REJECTED
+  ekycStatus    String   @default("PENDING") // PENDING | REVIEWING | VERIFIED | REJECTED
   cccdFrontUrl  String?
   cccdBackUrl   String?
   selfieUrl     String?
@@ -51,6 +51,41 @@ model User {
   agreementSigns    AgreementSignature[]
   transferAsSeller  SlotTransferRequest[] @relation("seller")
   transferAsBuyer   SlotTransferRequest[] @relation("buyer")
+  ekycSubmissions   EkycSubmission[]
+}
+
+// ---------------------------------------------------------------------------
+// eKYC — hồ sơ định danh điện tử
+// ---------------------------------------------------------------------------
+
+model EkycSubmission {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  status         String   @default("PENDING_REVIEW") // PENDING_REVIEW | VERIFIED | REJECTED
+  // Thông tin trích xuất (OCR) từ CCCD
+  cccd           String?
+  fullName       String?
+  dob            String?
+  gender         String?
+  hometown       String?
+  address        String?
+  issueDate      String?
+  issuePlace     String?
+  // Ảnh (base64 data URL, đã nén)
+  frontImage     String?
+  backImage      String?
+  selfieImage    String?
+  // Kết quả đối chiếu
+  faceMatchScore Float    @default(0)
+  livenessScore  Float    @default(0)
+  livenessMethod String?  // active-challenge | derived | mock
+  livenessChallenges String? // JSON các thử thách đã vượt
+  ocrConfidence  Float    @default(0)
+  rejectReason   String?
+  reviewedById   String?
+  reviewedAt     DateTime?
+  createdAt      DateTime @default(now())
 }
 
 // ---------------------------------------------------------------------------

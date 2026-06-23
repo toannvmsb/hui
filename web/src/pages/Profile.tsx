@@ -49,20 +49,26 @@ export default function Profile() {
             <div className="flex-1 min-w-0">
               <h2 className="font-headline-sm text-headline-sm text-on-surface truncate">{p.fullName}</h2>
               <p className="text-body-sm text-on-surface-variant tabular-nums">+84 {p.phone?.slice(1)}</p>
-              {verified
-                ? <Badge tone="green" icon="verified">Đã định danh</Badge>
+              {p.ekycStatus === 'VERIFIED' ? <Badge tone="green" icon="verified">Đã định danh</Badge>
+                : p.ekycStatus === 'REVIEWING' ? <Badge tone="blue" icon="hourglass_top">Đang chờ duyệt</Badge>
+                : p.ekycStatus === 'REJECTED' ? <Badge tone="red" icon="cancel">eKYC bị từ chối</Badge>
                 : <Badge tone="amber" icon="error">Chưa định danh</Badge>}
             </div>
           </div>
         </Card>
 
-        {/* eKYC CTA cho người chưa định danh */}
-        {!verified && (
-          <Card className="p-4 mb-4 border-warning/40 bg-warning/5 flex items-center gap-3" onClick={() => navigate('/ekyc')}>
-            <div className="w-11 h-11 rounded-xl bg-warning/15 flex items-center justify-center flex-shrink-0"><Icon name="fingerprint" className="text-warning" /></div>
+        {/* eKYC CTA theo trạng thái */}
+        {p.ekycStatus === 'REVIEWING' ? (
+          <Card className="p-4 mb-4 border-tertiary/40 bg-tertiary/5 flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-tertiary/15 flex items-center justify-center flex-shrink-0"><Icon name="hourglass_top" className="text-tertiary" /></div>
+            <div className="flex-1"><p className="font-semibold text-body-md text-on-surface">Hồ sơ eKYC đang chờ duyệt</p><p className="text-body-sm text-on-surface-variant">Bộ phận kiểm duyệt đang xác minh, thường trong vài giờ</p></div>
+          </Card>
+        ) : !verified && (
+          <Card className={`p-4 mb-4 flex items-center gap-3 ${p.ekycStatus === 'REJECTED' ? 'border-error/40 bg-error/5' : 'border-warning/40 bg-warning/5'}`} onClick={() => navigate('/ekyc')}>
+            <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${p.ekycStatus === 'REJECTED' ? 'bg-error/15' : 'bg-warning/15'}`}><Icon name="fingerprint" className={p.ekycStatus === 'REJECTED' ? 'text-error' : 'text-warning'} /></div>
             <div className="flex-1">
-              <p className="font-semibold text-body-md text-on-surface">Hoàn tất định danh eKYC</p>
-              <p className="text-body-sm text-on-surface-variant">Định danh để tạo & tham gia dây hụi, nâng độ tin cậy</p>
+              <p className="font-semibold text-body-md text-on-surface">{p.ekycStatus === 'REJECTED' ? 'eKYC bị từ chối — nộp lại' : 'Hoàn tất định danh eKYC'}</p>
+              <p className="text-body-sm text-on-surface-variant">{p.ekycStatus === 'REJECTED' ? 'Chụp lại ảnh rõ nét và nộp hồ sơ mới' : 'Định danh để tạo & tham gia dây hụi, nâng độ tin cậy'}</p>
             </div>
             <Icon name="chevron_right" className="text-on-surface-variant" />
           </Card>
